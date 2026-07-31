@@ -21,7 +21,8 @@ function today() {
 }
 
 // ─── Flask API hook ────────────────────────────────────────────────────────
-const API = "http://localhost:4000/api/applications";
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:4000";
+const API = `${API_BASE.replace(/\/$/, "")}/api/applications`;
 
 function useApplications() {
   const [apps, setApps] = useState([]);
@@ -34,28 +35,58 @@ function useApplications() {
   }, []);
 
   const add = async (form) => {
-    const res = await fetch(API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const newApp = await res.json();
-    setApps(prev => [newApp, ...prev]);
+    try {
+      const res = await fetch(API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to create application: ${errData.error || res.statusText}`);
+        return false;
+      }
+      const newApp = await res.json();
+      setApps(prev => [newApp, ...prev]);
+      return true;
+    } catch (err) {
+      alert("Network error: Unable to reach backend server. Please ensure python app.py is running.");
+      console.error(err);
+      return false;
+    }
   };
 
   const update = async (id, form) => {
-    const res = await fetch(`${API}/${id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    const updated = await res.json();
-    setApps(prev => prev.map(a => a.id === id ? updated : a));
+    try {
+      const res = await fetch(`${API}/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        alert(`Failed to update application: ${errData.error || res.statusText}`);
+        return false;
+      }
+      const updated = await res.json();
+      setApps(prev => prev.map(a => a.id === id ? updated : a));
+      return true;
+    } catch (err) {
+      alert("Network error: Unable to reach backend server.");
+      console.error(err);
+      return false;
+    }
   };
 
   const remove = async (id) => {
-    await fetch(`${API}/${id}`, { method: "DELETE" });
-    setApps(prev => prev.filter(a => a.id !== id));
+    try {
+      const res = await fetch(`${API}/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setApps(prev => prev.filter(a => a.id !== id));
+      }
+    } catch (err) {
+      console.error("Failed to delete application:", err);
+    }
   };
 
   return { apps, add, update, remove };
@@ -197,25 +228,19 @@ function DonutChart({ data }) {
   return (
     <div style={{display:"flex",alignItems:"center",gap:"24px",flexWrap:"wrap"}}>
       <svg width="140" height="140" viewBox="0 0 140 140">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth={stroke}/>
-        {slices.map(s=>(
-          <circle key={s.label} cx={cx} cy={cy} r={r} fill="none"
-            stroke={s.color} strokeWidth={stroke}
-            strokeDasharray={s.dasharray} strokeDashoffset={s.dashoffset}
-            strokeLinecap="round" style={{transition:"all 0.5s"}}
-            transform={`rotate(-90 ${cx} ${cy})`}/>
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth={stroke}/>
+        {slices.map((s,i)=>(
+          <circle key={i} cx={cx} cy={cy} r={r} fill="none" stroke={s.color}
+            strokeWidth={stroke} strokeDasharray={s.dasharray} strokeDashoffset={s.dashoffset}
+            style={{transition:"all 0.5s ease",transformOrigin:"center",transform:"rotate(-90deg)"}}/>
         ))}
-        <text x={cx} y={cy-6} textAnchor="middle" fill="#f1f5f9" fontSize="22" fontWeight="700"
-          fontFamily="'Syne',sans-serif">{total}</text>
-        <text x={cx} y={cy+12} textAnchor="middle" fill="#64748b" fontSize="10" fontWeight="600"
-          letterSpacing="1">TOTAL</text>
       </svg>
       <div style={{display:"flex",flexDirection:"column",gap:"8px"}}>
-        {data.filter(d=>d.value>0).map(d=>(
-          <div key={d.label} style={{display:"flex",alignItems:"center",gap:"8px"}}>
-            <span style={{width:8,height:8,borderRadius:"2px",background:d.color,flexShrink:0}}/>
-            <span style={{color:"#94a3b8",fontSize:"12px"}}>{d.label}</span>
-            <span style={{color:"#f1f5f9",fontSize:"12px",fontWeight:700,marginLeft:"auto",paddingLeft:8}}>{d.value}</span>
+        {data.map((d,i)=>(
+          <div key={i} style={{display:"flex",alignItems:"center",gap:"10px",fontSize:"12px"}}>
+            <span style={{width:8,height:8,borderRadius:"50%",background:d.color,flexShrink:0}}/>
+            <span style={{color:"#94a3b8",minWidth:"90px"}}>{d.label}</span>
+            <span style={{fontWeight:700,color:"#f1f5f9"}}>{d.value}</span>
           </div>
         ))}
       </div>
@@ -322,12 +347,15 @@ export default function App() {
   };
 
   const handleSave = async (form) => {
+    let ok = false;
     if (modal?.id) {
-      await update(modal.id, form);
+      ok = await update(modal.id, form);
     } else {
-      await add(form);
+      ok = await add(form);
     }
-    setModal(null);
+    if (ok) {
+      setModal(null);
+    }
   };
 
   const handleDelete = async (id) => {
@@ -350,202 +378,185 @@ export default function App() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap');
-        *{box-sizing:border-box;margin:0;padding:0;}
-        body{background:#080b12;font-family:'DM Sans',sans-serif;color:#e2e8f0;min-height:100vh;}
-        input,textarea,select{font-family:'DM Sans',sans-serif;}
-        ::-webkit-scrollbar{width:6px;height:6px;}
-        ::-webkit-scrollbar-track{background:transparent;}
-        ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
-        @keyframes modalIn{from{opacity:0;transform:scale(0.92) translateY(20px);}to{opacity:1;transform:scale(1) translateY(0);}}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:translateY(0);}}
-        @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.6;}}
-        .fade-up{animation:fadeUp 0.4s both;}
-        tr:hover td{background:rgba(255,255,255,0.025)!important;}
-        input:focus,textarea:focus{border-color:rgba(99,102,241,0.5)!important;outline:none;}
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Syne:wght@700;800&display=swap');
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { background:#07090e; color:#cbd5e1; font-family:'Plus Jakarta Sans',sans-serif; min-height:100vh; }
+        @keyframes modalIn { from { opacity:0; transform:scale(0.95) translateY(10px); } to { opacity:1; transform:scale(1) translateY(0); } }
+        @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        .fade-up { animation: fadeUp 0.35s ease forwards; }
       `}</style>
 
-      <div style={{position:"fixed",inset:0,zIndex:0,overflow:"hidden",pointerEvents:"none"}}>
-        <div style={{position:"absolute",top:"-20%",left:"-10%",width:"600px",height:"600px",
-          borderRadius:"50%",background:"radial-gradient(circle,rgba(99,102,241,0.12) 0%,transparent 70%)"}}/>
-        <div style={{position:"absolute",bottom:"-10%",right:"-5%",width:"500px",height:"500px",
-          borderRadius:"50%",background:"radial-gradient(circle,rgba(139,92,246,0.1) 0%,transparent 70%)"}}/>
-        <div style={{position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",
-          width:"800px",height:"2px",background:"linear-gradient(90deg,transparent,rgba(99,102,241,0.08),transparent)"}}/>
-      </div>
+      <div style={{maxWidth:"1280px",margin:"0 auto",padding:"32px 24px 80px"}}>
 
-      <div style={{position:"relative",zIndex:1,maxWidth:"1280px",margin:"0 auto",padding:"32px 24px"}}>
-
-        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"32px",flexWrap:"wrap",gap:"16px"}}
-          className="fade-up">
+        {/* ── HEADER ── */}
+        <header style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"36px",flexWrap:"wrap",gap:"16px"}}>
           <div>
-            <div style={{display:"flex",alignItems:"center",gap:"12px",marginBottom:"6px"}}>
-              <div style={{background:"linear-gradient(135deg,#6366f1,#8b5cf6)",borderRadius:"12px",padding:"10px",
-                boxShadow:"0 4px 20px rgba(99,102,241,0.5)"}}>
-                <Briefcase size={22} color="#fff"/>
+            <div style={{display:"flex",alignItems:"center",gap:"10px",marginBottom:"4px"}}>
+              <div style={{width:36,height:36,borderRadius:"10px",background:"linear-gradient(135deg,#6366f1,#8b5cf6)",
+                display:"flex",alignItems:"center",justifyContent:"center",boxShadow:"0 4px 14px rgba(99,102,241,0.4)"}}>
+                <Briefcase size={18} color="#fff"/>
               </div>
-              <h1 style={{fontSize:"28px",fontWeight:800,fontFamily:"'Syne',sans-serif",
-                background:"linear-gradient(135deg,#f1f5f9,#94a3b8)",
-                WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent"}}>
+              <h1 style={{fontFamily:"'Syne',sans-serif",fontSize:"26px",fontWeight:800,color:"#f8fafc",letterSpacing:"-0.02em"}}>
                 JobTrackr
               </h1>
             </div>
-            <div style={{display:"inline-flex",alignItems:"center",gap:"8px",
-              background:"rgba(99,102,241,0.1)",border:"1px solid rgba(99,102,241,0.25)",
-              borderRadius:"999px",padding:"6px 14px",fontSize:"12px",color:"#a5b4fc"}}>
-              <Flame size={12} style={{animation:"pulse 2s infinite"}}/>
+            <p style={{fontSize:"13px",color:"#64748b",margin:0}}>
               {motivational()}
-            </div>
+            </p>
           </div>
-          <button onClick={()=>setModal("add")} style={{
-            ...btnPrimary,display:"flex",alignItems:"center",gap:"8px",
-            padding:"12px 22px",fontSize:"14px",borderRadius:"12px"}}>
-            <Plus size={16}/> New Application
-          </button>
-        </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(160px,1fr))",gap:"16px",marginBottom:"28px"}}
+          <button onClick={()=>setModal("add")} style={{
+            ...btnPrimary, display:"flex",alignItems:"center",gap:"8px"
+          }}>
+            <Plus size={16}/> Add Application
+          </button>
+        </header>
+
+        {/* ── STATS ROW ── */}
+        <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:"16px",marginBottom:"32px"}}
           className="fade-up">
           {[
-            {icon:<Briefcase size={18}/>, label:"Total",        value:stats.total,       color:"#6366f1", glow:"rgba(99,102,241,0.3)"},
-            {icon:<Clock size={18}/>,     label:"Interviewing", value:stats.interviewing, color:"#a78bfa", glow:"rgba(167,139,250,0.3)"},
-            {icon:<Award size={18}/>,     label:"Offers",       value:stats.offers,       color:"#34d399", glow:"rgba(52,211,153,0.3)"},
-            {icon:<XCircle size={18}/>,   label:"Rejection %",  value:`${stats.rate}%`,   color:"#f87171", glow:"rgba(248,113,113,0.3)"},
-            {icon:<TrendingUp size={18}/>,label:"This Month",   value:stats.thisMonth,    color:"#fbbf24", glow:"rgba(251,191,36,0.3)"},
-          ].map((s,i)=>(
+            {label:"Total Applications",val:stats.total,icon:Briefcase,color:"#6366f1",bg:"rgba(99,102,241,0.12)"},
+            {label:"Interviewing",val:stats.interviewing,icon:Clock,color:"#a78bfa",bg:"rgba(167,139,250,0.12)"},
+            {label:"Offers Received",val:stats.offers,icon:Award,color:"#34d399",bg:"rgba(52,211,153,0.12)"},
+            {label:"Rejection Rate",val:`${stats.rate}%`,icon:TrendingUp,color:"#f87171",bg:"rgba(248,113,113,0.12)"},
+          ].map((c,i)=>(
             <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
-              borderRadius:"16px",padding:"20px",position:"relative",overflow:"hidden",
-              transition:"transform 0.2s,box-shadow 0.2s"}}
-              onMouseEnter={e=>{e.currentTarget.style.transform="translateY(-3px)";e.currentTarget.style.boxShadow=`0 12px 40px ${s.glow}`;}}
-              onMouseLeave={e=>{e.currentTarget.style.transform="";e.currentTarget.style.boxShadow="";}}>
-              <div style={{position:"absolute",top:-20,right:-20,width:80,height:80,borderRadius:"50%",
-                background:`radial-gradient(circle,${s.glow} 0%,transparent 70%)`}}/>
-              <div style={{color:s.color,marginBottom:"12px"}}>{s.icon}</div>
-              <div style={{fontSize:"28px",fontWeight:800,fontFamily:"'Syne',sans-serif",color:"#f1f5f9",lineHeight:1}}>{s.value}</div>
-              <div style={{color:"#475569",fontSize:"12px",marginTop:"4px",fontWeight:500}}>{s.label}</div>
+              borderRadius:"16px",padding:"20px",display:"flex",alignItems:"center",gap:"16px"}}>
+              <div style={{width:44,height:44,borderRadius:"12px",background:c.bg,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                <c.icon size={20} color={c.color}/>
+              </div>
+              <div>
+                <div style={{fontSize:"22px",fontWeight:800,color:"#f8fafc",lineHeight:1.1}}>{c.val}</div>
+                <div style={{fontSize:"12px",color:"#64748b",marginTop:"3px"}}>{c.label}</div>
+              </div>
             </div>
           ))}
         </div>
 
-        <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:"20px",marginBottom:"24px",
-          alignItems:"start"}} className="fade-up">
-          <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",
-            borderRadius:"16px",padding:"20px",minWidth:"240px"}}>
-            <div style={{fontSize:"11px",fontWeight:700,color:"#475569",letterSpacing:"0.1em",
-              textTransform:"uppercase",marginBottom:"16px",display:"flex",alignItems:"center",gap:"6px"}}>
-              <BarChart2 size={12}/>Pipeline Breakdown
+        {/* ── ANALYTICS ROW ── */}
+        <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",
+          borderRadius:"20px",padding:"24px",marginBottom:"32px"}} className="fade-up">
+          <h3 style={{fontSize:"14px",fontWeight:700,color:"#94a3b8",letterSpacing:"0.06em",
+            textTransform:"uppercase",marginBottom:"20px",display:"flex",alignItems:"center",gap:"8px"}}>
+            <BarChart2 size={16} color="#6366f1"/> Pipeline Breakdown
+          </h3>
+          <DonutChart data={donutData}/>
+        </div>
+
+        {/* ── CONTROLS / TOOLBAR ── */}
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:"20px",flexWrap:"wrap",gap:"14px"}}
+          className="fade-up">
+          <div style={{display:"flex",alignItems:"center",gap:"12px",flexWrap:"wrap",flex:1,minWidth:"280px"}}>
+            {/* Search */}
+            <div style={{position:"relative",flex:1,maxWidth:"320px"}}>
+              <Search size={15} style={{position:"absolute",left:"12px",top:"50%",transform:"translateY(-50%)",color:"#475569"}}/>
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search company, title..."
+                style={{...inputStyle,paddingLeft:"36px",fontSize:"13px"}}/>
+              {search && (
+                <button onClick={()=>setSearch("")} style={{position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",
+                  background:"none",border:"none",color:"#64748b",cursor:"pointer"}}><X size={13}/></button>
+              )}
             </div>
-            <DonutChart data={donutData}/>
+
+            {/* Filter pills */}
+            <div style={{display:"flex",gap:"6px",overflowX:"auto",paddingBottom:"2px"}}>
+              {["All",...KANBAN_ORDER].map(s=>(
+                <button key={s} onClick={()=>setFilterStatus(s)} style={{
+                  padding:"6px 12px", borderRadius:"999px", cursor:"pointer", fontSize:"12px", fontWeight:600,
+                  border: filterStatus===s ? "1px solid rgba(99,102,241,0.5)" : "1px solid rgba(255,255,255,0.06)",
+                  background: filterStatus===s ? "rgba(99,102,241,0.2)" : "rgba(255,255,255,0.03)",
+                  color: filterStatus===s ? "#a5b4fc" : "#64748b", transition:"all 0.15s", whiteSpace:"nowrap"
+                }}>{s}</button>
+              ))}
+            </div>
           </div>
 
-          <div style={{display:"flex",flexDirection:"column",gap:"12px"}}>
-            <div style={{display:"flex",gap:"10px",flexWrap:"wrap"}}>
-              <div style={{flex:1,minWidth:"200px",position:"relative"}}>
-                <Search size={14} style={{position:"absolute",left:"12px",top:"50%",transform:"translateY(-50%)",color:"#475569"}}/>
-                <input value={search} onChange={e=>setSearch(e.target.value)}
-                  placeholder="Search companies, roles..."
-                  style={{...inputStyle,paddingLeft:"36px",width:"100%"}}/>
-              </div>
-              <div style={{display:"flex",gap:"6px",flexWrap:"wrap",alignItems:"center"}}>
-                {["All",...Object.keys(STATUSES)].map(s=>(
-                  <button key={s} onClick={()=>setFilterStatus(s)} style={{
-                    padding:"8px 14px",borderRadius:"8px",fontSize:"12px",fontWeight:600,
-                    cursor:"pointer",border:"1px solid",transition:"all 0.15s",
-                    borderColor: filterStatus===s?(s==="All"?"rgba(99,102,241,0.5)":STATUSES[s]?.border||"rgba(99,102,241,0.5)"):"rgba(255,255,255,0.08)",
-                    background: filterStatus===s?(s==="All"?"rgba(99,102,241,0.15)":STATUSES[s]?.bg||"rgba(99,102,241,0.15)"):"transparent",
-                    color: filterStatus===s?(s==="All"?"#6366f1":STATUSES[s]?.color||"#6366f1"):"#475569"
-                  }}>{s}</button>
-                ))}
-              </div>
-            </div>
-
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-              <span style={{color:"#475569",fontSize:"13px"}}>
-                <span style={{color:"#94a3b8",fontWeight:600}}>{filtered.length}</span> result{filtered.length!==1?"s":""}
-              </span>
-              <div style={{display:"flex",background:"rgba(255,255,255,0.04)",
-                border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"3px",gap:"3px"}}>
-                {[["list","List",<List size={14}/>],["kanban","Board",<LayoutGrid size={14}/>]].map(([v,l,icon])=>(
-                  <button key={v} onClick={()=>setView(v)} style={{
-                    padding:"6px 14px",borderRadius:"7px",border:"none",cursor:"pointer",
-                    background:view===v?"rgba(99,102,241,0.3)":"transparent",
-                    color:view===v?"#a5b4fc":"#475569",
-                    fontSize:"12px",fontWeight:600,display:"flex",alignItems:"center",gap:"6px",
-                    transition:"all 0.15s"
-                  }}>{icon}{l}</button>
-                ))}
-              </div>
-            </div>
+          {/* View toggle */}
+          <div style={{display:"flex",alignItems:"center",gap:"4px",background:"rgba(255,255,255,0.04)",
+            border:"1px solid rgba(255,255,255,0.08)",borderRadius:"10px",padding:"4px"}}>
+            {[
+              {v:"list",icon:List,label:"List"},
+              {v:"kanban",icon:LayoutGrid,label:"Board"}
+            ].map(({v,icon:Icon,label})=>(
+              <button key={v} onClick={()=>setView(v)} style={{
+                display:"flex",alignItems:"center",gap:"6px",padding:"6px 14px",borderRadius:"7px",
+                border:"none",cursor:"pointer",fontSize:"12px",fontWeight:600,
+                background: view===v ? "rgba(99,102,241,0.3)" : "transparent",
+                color: view===v ? "#fff" : "#64748b", transition:"all 0.15s"
+              }}>
+                <Icon size={14}/> {label}
+              </button>
+            ))}
           </div>
         </div>
 
-        {view==="list" && (
-          <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.07)",
-            borderRadius:"16px",overflow:"hidden"}} className="fade-up">
-            <div style={{overflowX:"auto"}}>
-              <table style={{width:"100%",borderCollapse:"collapse"}}>
+        {/* ── LIST VIEW ── */}
+        {view === "list" && (
+          <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",
+            borderRadius:"20px",overflow:"hidden"}} className="fade-up">
+            {filtered.length === 0 ? (
+              <div style={{padding:"60px 20px",textAlign:"center",color:"#475569"}}>
+                <Briefcase size={36} style={{marginBottom:"12px",opacity:0.3}}/>
+                <div style={{fontSize:"15px",fontWeight:600}}>No applications found</div>
+                <div style={{fontSize:"13px",marginTop:"4px"}}>Try adjusting your search or filters</div>
+              </div>
+            ) : (
+              <table style={{width:"100%",borderCollapse:"collapse",textAlign:"left",fontSize:"13px"}}>
                 <thead>
-                  <tr style={{borderBottom:"1px solid rgba(255,255,255,0.07)"}}>
-                    {[
-                      {k:"company",label:"Company"},{k:"title",label:"Role"},
-                      {k:"date",label:"Date"},{k:"status",label:"Status"},
-                      {k:null,label:"Links"},{k:null,label:"Actions"},
-                    ].map(({k,label})=>(
-                      <th key={label} onClick={k?()=>handleSort(k):undefined}
-                        style={{padding:"14px 18px",textAlign:"left",fontSize:"11px",fontWeight:700,
-                          color:"#475569",letterSpacing:"0.08em",textTransform:"uppercase",
-                          cursor:k?"pointer":"default",whiteSpace:"nowrap",userSelect:"none"}}>
-                        <span style={{display:"flex",alignItems:"center",gap:"4px"}}>
-                          {label}{k&&<SortIcon k={k}/>}
-                        </span>
-                      </th>
-                    ))}
+                  <tr style={{borderBottom:"1px solid rgba(255,255,255,0.06)",color:"#475569",fontSize:"11px",
+                    textTransform:"uppercase",letterSpacing:"0.08em"}}>
+                    <th style={{padding:"14px 20px",cursor:"pointer"}} onClick={()=>handleSort("company")}>
+                      Company <SortIcon k="company"/>
+                    </th>
+                    <th style={{padding:"14px 20px",cursor:"pointer"}} onClick={()=>handleSort("title")}>
+                      Job Title <SortIcon k="title"/>
+                    </th>
+                    <th style={{padding:"14px 20px",cursor:"pointer"}} onClick={()=>handleSort("date")}>
+                      Date <SortIcon k="date"/>
+                    </th>
+                    <th style={{padding:"14px 20px"}}>Status</th>
+                    <th style={{padding:"14px 20px"}}>Notes</th>
+                    <th style={{padding:"14px 20px",textAlign:"right"}}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.length===0&&(
-                    <tr><td colSpan={6} style={{textAlign:"center",padding:"48px",color:"#475569",fontSize:"14px"}}>
-                      No applications found.{" "}
-                      <button onClick={()=>setModal("add")}
-                        style={{color:"#6366f1",background:"none",border:"none",cursor:"pointer",fontWeight:600,fontSize:"14px"}}>
-                        Add one →
-                      </button>
-                    </td></tr>
-                  )}
                   {filtered.map(app=>(
-                    <tr key={app.id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",transition:"background 0.1s"}}>
-                      <td style={{padding:"14px 18px"}}>
-                        <div style={{fontWeight:700,color:"#f1f5f9",fontSize:"14px"}}>{app.company}</div>
-                        {app.notes&&<div style={{fontSize:"11px",color:"#475569",marginTop:"2px",
-                          maxWidth:"180px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{app.notes}</div>}
+                    <tr key={app.id} style={{borderBottom:"1px solid rgba(255,255,255,0.04)",transition:"background 0.15s"}}
+                      onMouseEnter={e=>e.currentTarget.style.background="rgba(255,255,255,0.02)"}
+                      onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                      <td style={{padding:"14px 20px",fontWeight:700,color:"#f1f5f9"}}>
+                        {app.company}
+                        {app.url && (
+                          <a href={app.url} target="_blank" rel="noreferrer"
+                            style={{marginLeft:"8px",color:"#6366f1",display:"inline-flex",alignItems:"center"}}>
+                            <ExternalLink size={11}/>
+                          </a>
+                        )}
                       </td>
-                      <td style={{padding:"14px 18px",color:"#94a3b8",fontSize:"13px",whiteSpace:"nowrap"}}>{app.title}</td>
-                      <td style={{padding:"14px 18px",color:"#64748b",fontSize:"12px",whiteSpace:"nowrap"}}>
-                        <span style={{display:"flex",alignItems:"center",gap:"5px"}}><Calendar size={11}/>{app.date}</span>
+                      <td style={{padding:"14px 20px",color:"#94a3b8"}}>{app.title}</td>
+                      <td style={{padding:"14px 20px",color:"#64748b",fontVariantNumeric:"tabular-nums"}}>{app.date}</td>
+                      <td style={{padding:"14px 20px"}}><StatusBadge status={app.status}/></td>
+                      <td style={{padding:"14px 20px",color:"#475569",maxWidth:"220px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                        {app.notes || "—"}
                       </td>
-                      <td style={{padding:"14px 18px"}}><StatusBadge status={app.status}/></td>
-                      <td style={{padding:"14px 18px"}}>
-                        {app.url&&<a href={app.url} target="_blank" rel="noreferrer"
-                          style={{display:"flex",alignItems:"center",gap:"4px",color:"#6366f1",fontSize:"12px",fontWeight:600,textDecoration:"none"}}>
-                          <Globe size={12}/>View
-                        </a>}
-                      </td>
-                      <td style={{padding:"14px 18px"}}>
-                        <div style={{display:"flex",gap:"6px"}}>
-                          <button onClick={()=>setModal(app)} style={{...iconBtn}} title="Edit"><Edit3 size={13}/></button>
-                          <button onClick={()=>setConfirmDel(app.id)} style={{...iconBtn,color:"#f87171"}} title="Delete"><Trash2 size={13}/></button>
+                      <td style={{padding:"14px 20px",textAlign:"right"}}>
+                        <div style={{display:"inline-flex",gap:"6px"}}>
+                          <button onClick={()=>setModal(app)} style={iconBtn}><Edit3 size={13}/></button>
+                          <button onClick={()=>setConfirmDel(app.id)} style={{...iconBtn,color:"#f87171"}}><Trash2 size={13}/></button>
                         </div>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
+            )}
           </div>
         )}
 
-        {view==="kanban" && (
-          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:"16px"}}
+        {/* ── KANBAN VIEW ── */}
+        {view === "kanban" && (
+          <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))",gap:"16px"}}
             className="fade-up">
             {KANBAN_ORDER.map(status=>{
               const cols = filtered.filter(a=>a.status===status);

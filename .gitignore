@@ -1,0 +1,29 @@
+# Environment variables (contains database passwords)
+.env
+*.env
+!.env.example
+
+# Node dependencies & builds
+node_modules/
+client/node_modules/
+dist/
+client/dist/
+
+# Python cache & virtual environments
+__pycache__/
+server/__pycache__/
+*.pyc
+venv/
+.venv/
+server/venv/
+server/.venv/
+*.sqlite
+*.sqlite3
+*.db
+server/instance/
+
+# OS & IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
