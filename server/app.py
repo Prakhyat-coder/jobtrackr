@@ -85,17 +85,21 @@ def create_application():
     if status not in VALID_STATUSES:
         status = "Applied"
         
-    app_obj = Application(
-        company=company,
-        title=title,
-        date=date,
-        status=status,
-        url=url,
-        notes=notes
-    )
-    db.session.add(app_obj)
-    db.session.commit()
-    return jsonify(app_obj.to_dict()), 201
+    try:
+        app_obj = Application(
+            company=company,
+            title=title,
+            date=date,
+            status=status,
+            url=url,
+            notes=notes
+        )
+        db.session.add(app_obj)
+        db.session.commit()
+        return jsonify(app_obj.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {str(e)}"}), 400
 
 
 # PUT update application
@@ -121,8 +125,12 @@ def update_application(id):
     if "notes" in data:
         app_obj.notes = data["notes"].strip()
         
-    db.session.commit()
-    return jsonify(app_obj.to_dict())
+    try:
+        db.session.commit()
+        return jsonify(app_obj.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {str(e)}"}), 400
 
 
 # DELETE application

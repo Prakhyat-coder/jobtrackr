@@ -6,8 +6,8 @@ class Application(db.Model):
     __tablename__ = 'applications'
 
     id = db.Column(db.Integer, primary_key=True)
-    company= db.Column(db.String(100), nullable=False)
-    title = db.Column(db.String(100), nullable=False)
+    company= db.Column(db.Text,        nullable=False)
+    title = db.Column(db.Text,        nullable=False)
     date  = db.Column(db.String(20), nullable=False)
     status    = db.Column(db.String(20),  nullable=False, default="Applied")
     url       = db.Column(db.Text,        nullable=True)
